@@ -1,51 +1,74 @@
-# Initialization for EDMS application
+# Run EDMS with synthetic storage
 
-This folder is the single entry point for running EDMS — clone the repo
-and run one command.
+## Configure storage first
 
-## Run it
+1. Create an **empty directory outside this checkout** for EDMS data:
+
+   ```bash
+   mkdir -p "$HOME/edms-data"
+   ```
+
+2. Edit `init/docker-compose.yml`. Replace
+   `/REPLACE_WITH_YOUR_EDMS_DATA_PATH` in `webserver.volumes.source` with
+   the absolute path you just created (for example `/home/alex/edms-data`).
+   Use the expanded path, not `~`. The seed service uses the same YAML anchor.
+   Docker refuses to create this folder automatically.
+
+3. Only after configuring the path, run:
+
+   ```bash
+   cd init
+   docker compose build
+   docker compose --profile demo run --rm seed
+   docker compose up
+   ```
+
+Open http://localhost:3911 for the app, or http://localhost:3000 for the API.
+Python, Node, and a host Rust installation are not required. The initial image
+build downloads dependencies; **generating the data makes no network requests**.
+
+## Dummy data
+
+The initializer uses EDMS's current SQLite schema, folder manager, EID
+formatter, and request/response/header writers. It creates four explicitly
+synthetic `example.invalid` endpoints (GET, POST, PUT, DELETE), eight QP pairs,
+metadata, history, tags, bookmarks, and a collection membership database.
+The allocation watermark is advanced so subsequent endpoints get fresh IDs.
+
+Every required storage folder receives a sample: account workspace metadata,
+history JSON, global EQP JSON, collection SQLite, RepoView Markdown, WebView
+HTML, takeout Markdown, and valid compressed/uncompressed import and export
+bundles. Legacy active, repo, session-backup, exports, temp, and docs folders
+also contain demo Markdown. These are preview fixtures, not authenticated
+accounts or claims that an endpoint was really tested. WebView bundles contain
+no SQLite files. The webview/repoview catalogs keep the application's current
+null backing-file convention.
+
+The initializer only accepts an existing, completely empty directory. A second
+run fails without modifying existing data. It is optional: skip the seed command
+for a clean installation. Stop EDMS before initializing any demo directory.
+
+Compose keeps the main database at its existing host location,
+`backend/webserver/data/edms.db`. The initializer refuses to overwrite that
+file too, even if the storage folder is empty. Collection membership databases
+live inside the configured storage folder.
+
+The older `seed.mjs` remains available as a separate manual API demo; it contacts
+a public API and is no longer run automatically by Compose.
+
+## Local initializer and checks
+
+With Rust installed, initialize a fresh folder without Docker:
 
 ```bash
-cd init
-docker compose up --build
+cargo run --manifest-path backend/compute/Cargo.toml --bin synthetic-data -- /absolute/path/to/empty-data
+cargo test --manifest-path backend/compute/Cargo.toml --bin synthetic-data
 ```
 
-That's it — nothing to configure first, no `.env` file.
+For a local webserver, point `storage.root` in `backend/webserver/config.yaml`
+at that existing directory (relative to the webserver working directory), and
+set `EDMS_DB_PATH` to its `edms.db`. Generate Docker fixtures through the seed
+container so SQLite catalog paths use `/app/edms_root`, not host paths.
 
-EDMS keeps all its data — collections, request/response history, everything
-under `storage/` — in a plain folder on your machine, not hidden inside a
-Docker volume: by default `../../edms-data`, a folder next to this repo.
-It's created automatically the first time you run this — you don't need
-to make it yourself.
-
-**Want your data somewhere else?** Open `docker-compose.yml`, find this
-line under `webserver: volumes:`, and change the left-hand side to your
-own path:
-
-```yaml
-- ../../edms-data:/app/edms_root
-```
-
-Whatever you set it to gets created automatically the same way — no
-manual folder setup either way.
-
-First run takes a few minutes (Rust release build). Once it's up:
-
-- **App:** http://localhost:3911
-- **Backend API:** http://localhost:3000 (see `backend/webserver/API_REFERENCE.md`)
-
-A one-shot `seed` container runs automatically the first time and
-populates ~25 real, tested endpoints with history, collections, and tags,
-so the app isn't empty on first look. It needs outbound internet (it
-tests against a public API) and only runs once — safe to leave in place
-on every `docker compose up`.
-
-## Resetting
-
-```bash
-docker compose down -v
-rm -rf ../backend/webserver/data
-```
-
-Your storage folder (`../../edms-data`, or wherever you pointed it) is
-untouched by this — delete it yourself if you want a truly clean slate.
+`docker compose down` stops the stack and leaves your storage directory intact.
+To try another dataset, create another empty directory and update the YAML path.
