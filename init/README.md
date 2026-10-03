@@ -34,35 +34,28 @@ First run takes a few minutes (Rust release build). Once it's up:
 - **App:** http://localhost:3911
 - **Backend API:** http://localhost:3000 (see `backend/webserver/API_REFERENCE.md`)
 
-## Optional offline dummy data
+## Automatic offline dummy data
 
-Seeding is now optional. A normal `docker compose up --build` starts EDMS
-without the old automatic network-based demo (~25 tested endpoints).
-To initialize a fresh installation with synthetic data, run the seed service
-**before** starting the app:
-
-```bash
-cd init
-docker compose build webserver
-docker compose --profile demo run --rm seed
-docker compose up
-```
+On a fresh installation, `docker compose up --build` automatically runs the
+`seed` service before the webserver starts. It creates **25** clearly marked
+synthetic `example.invalid` endpoints with **50** request/response/header sets,
+tags, bookmarks, history, a collection, view previews, and valid compressed
+and uncompressed import/export samples. Every required storage folder receives
+sample data. No profile or separate seed command is needed.
 
 Docker creates the default `../../edms-data` folder automatically for both
 services. No manual directory creation or YAML edit is required. If you choose
 a different storage location, update the host path in both services' mounts.
 
-The seed service runs without network access. It creates four clearly marked
-synthetic `example.invalid` endpoints, eight request/response/header sets,
-tags, bookmarks, history, a collection, view previews, and valid compressed
-and uncompressed import/export samples. Every required storage folder receives
-sample data. It uses EDMS's existing schema, folder manager, EID formatter, and
-QP writers; these fixtures do not represent real network tests.
-
-The generator refuses populated storage or an existing
-`backend/webserver/data/edms.db`, leaving existing data untouched. Run it once
-on a fresh installation with the app stopped. Repeat runs fail safely.
+The seed container has no network access and uses EDMS's existing schema,
+folder manager, EID formatter, and QP writers. This replaces the old automatic
+network demo with synthetic fixtures; no actual endpoint requests are made.
 The older network-based `seed.mjs` remains available for manual use.
+
+When storage is populated or `backend/webserver/data/edms.db` exists, seeding
+exits successfully without changing anything, allowing normal startup and
+repeat runs. Missing directories or generation errors still fail startup.
+An exited seed container with status 0 is expected.
 
 With Rust installed, you can also create an empty local folder and run:
 

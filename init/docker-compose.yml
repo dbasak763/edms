@@ -25,6 +25,9 @@ services:
       - RUST_LOG=info
       - EDMS_DB_PATH=/app/data/edms.db
       - EDMS_ROOT=/app/edms_root
+    depends_on:
+      seed:
+        condition: service_completed_successfully
     networks:
       - hashedtokens-edms
 
@@ -41,9 +44,9 @@ services:
     networks:
       - hashedtokens-edms
 
-  # Explicit offline initialization; run once before starting the webserver.
+  # Automatic offline initialization completes before the webserver starts.
+  # Existing storage or a database is skipped without modification.
   seed:
-    profiles: [demo]
     build:
       context: ../backend
       dockerfile: webserver/Dockerfile

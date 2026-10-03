@@ -7,18 +7,20 @@ use walkdir::WalkDir;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
+const ENDPOINT_COUNT: u64 = 25;
 const TIME: &str = "2026-09-01T12:00:00Z";
 
-fn seed(root: &Path, db_path: &Path) -> Result<()> {
+// true means initialized; false means an existing installation was skipped.
+fn seed(root: &Path, db_path: &Path) -> Result<bool> {
     // Never mix synthetic records with an existing installation.
     if !root.is_dir() {
         return Err("Create the storage directory before initializing dummy data".into());
     }
     if fs::read_dir(root)?.next().is_some() {
-        return Err("Storage directory must be empty; existing data is left untouched".into());
+        return Ok(false);
     }
     if db_path.exists() {
-        return Err("Database already exists; existing data is left untouched".into());
+        return Ok(false);
     }
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent)?;
@@ -26,12 +28,9 @@ fn seed(root: &Path, db_path: &Path) -> Result<()> {
     FolderLayout::new(root).create_edmsfolders()?;
     let db = Connection::open(db_path)?;
     edms::schema::initialize_schema(&db)?;
-    for (index, method, status) in [
-        (1, "GET", 200),
-        (2, "POST", 201),
-        (3, "PUT", 200),
-        (4, "DELETE", 204),
-    ] {
+    for index in 1..=ENDPOINT_COUNT {
+        let (method, status) = [("GET", 200), ("POST", 201), ("PUT", 200), ("DELETE", 204)]
+            [((index - 1) % 4) as usize];
         let eid = compute::eid::format_eid(index);
         let url = format!("https://example.invalid/demo/items/{index}");
         db.execute("INSERT INTO endpoints(endpoint_id, endpoint_str, method, annotation, created_at, updated_at) VALUES (?1, ?2, ?3, 'Synthetic demo; no network request was made', ?4, ?4)", params![eid, url, method, TIME])?;
@@ -69,11 +68,14 @@ fn seed(root: &Path, db_path: &Path) -> Result<()> {
         db.execute("INSERT INTO bookmarks(endpoint_id, folder, notes, timestamp) VALUES (?1, 'demo-items', 'Synthetic bookmark', ?2)", params![eid, TIME])?;
         db.execute("INSERT INTO history(endpoint_id, action, details, timestamp) VALUES (?1, 'test', 'Synthetic 25ms result; no request sent', ?2)", params![eid, TIME])?;
     }
-    db.execute("UPDATE eid_allocation SET watermark=4 WHERE id=1", [])?;
+    db.execute(
+        "UPDATE eid_allocation SET watermark=?1 WHERE id=1",
+        [ENDPOINT_COUNT as i64],
+    )?;
     let collection_path = root.join("storage/collections/demo-items.sqlite");
     let collection = Connection::open(&collection_path)?;
     collection.execute_batch("CREATE TABLE membership(endpoint_id TEXT NOT NULL UNIQUE, added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP); CREATE TABLE endpoint_tags(endpoint_id TEXT NOT NULL, tag TEXT NOT NULL, added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, UNIQUE(endpoint_id,tag));")?;
-    for index in 1..=4 {
+    for index in 1..=ENDPOINT_COUNT {
         let eid = compute::eid::format_eid(index);
         collection.execute("INSERT INTO membership VALUES (?1, ?2)", params![eid, TIME])?;
         collection.execute(
@@ -103,8 +105,8 @@ fn seed(root: &Path, db_path: &Path) -> Result<()> {
         root.join("storage/history/demo.json"),
         json!({"synthetic": true, "timestamp": TIME, "action": "initialize-demo"}).to_string(),
     )?;
-    let markdown = "# Synthetic EDMS data\n\nFour example.invalid endpoints with two QP pairs each. No network calls were made.\n";
-    let html = "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>Synthetic EDMS data</title><h1>Synthetic EDMS data</h1><p>Four offline demo endpoints.</p></html>";
+    let markdown = "# Synthetic EDMS data\n\n25 example.invalid endpoints with two QP pairs each. No network calls were made.\n";
+    let html = "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>Synthetic EDMS data</title><h1>Synthetic EDMS data</h1><p>25 offline demo endpoints.</p></html>";
     for folder in [
         "repo",
         "session-backup",
@@ -156,7 +158,7 @@ fn seed(root: &Path, db_path: &Path) -> Result<()> {
         root.join("app.log"),
         "2026-09-01T12:00:00Z INFO synthetic demo initialized offline\n",
     )?;
-    Ok(())
+    Ok(true)
 }
 
 fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
@@ -181,10 +183,13 @@ fn main() -> Result<()> {
         .nth(2)
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| root.join("edms.db"));
-    seed(root, &db_path)?;
-    println!(
-        "Synthetic storage initialized: four endpoints, eight QPs, collection and view samples, import/export archives."
-    );
+    if seed(root, &db_path)? {
+        println!(
+            "Synthetic storage initialized: 25 endpoints, 50 QPs, collection and view samples, import/export archives."
+        );
+    } else {
+        println!("Existing storage or database found; synthetic seeding skipped without changes.");
+    }
     Ok(())
 }
 
@@ -198,38 +203,51 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let db = dir.path().join("existing.db");
         fs::write(&db, "keep me").unwrap();
-        assert!(seed(&root, &db).is_err());
+        assert!(!seed(&root, &db).unwrap());
         assert_eq!(fs::read_to_string(db).unwrap(), "keep me");
         assert!(fs::read_dir(root).unwrap().next().is_none());
     }
 
     #[test]
+    fn populated_storage_without_database_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("keep.txt"), "existing storage").unwrap();
+        let db = dir.path().join("edms.db");
+        assert!(!seed(dir.path(), &db).unwrap());
+        assert!(!db.exists());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
+            "existing storage"
+        );
+    }
+
+    #[test]
     fn storage_matches_app_schema_and_preserves_existing_data() {
         let dir = tempfile::tempdir().unwrap();
-        seed(dir.path(), &dir.path().join("edms.db")).unwrap();
+        assert!(seed(dir.path(), &dir.path().join("edms.db")).unwrap());
         let db = Connection::open(dir.path().join("edms.db")).unwrap();
         edms::schema::initialize_schema(&db).unwrap();
         assert_eq!(
             db.query_row("SELECT count(*) FROM endpoints", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            4
+            25
         );
         assert_eq!(
             db.query_row("SELECT count(*) FROM response_metadata", [], |r| r
                 .get::<_, i64>(0))
                 .unwrap(),
-            8
+            50
         );
         assert_eq!(
             db.query_row("SELECT watermark FROM eid_allocation", [], |r| r
                 .get::<_, i64>(0))
                 .unwrap(),
-            4
+            25
         );
         let allocated =
             compute::eid::EidAllocator::new(&dir.path().join("edms.db").to_string_lossy());
         allocated.initialize().unwrap();
-        assert_eq!(allocated.allocate().unwrap(), "E0005-AAA");
+        assert_eq!(allocated.allocate().unwrap(), "E0026-AAA");
         assert!(matches!(
             FolderLayout::new(dir.path()).verify_edmsfolders(),
             compute::folder_manager::FolderStatus::Ok
@@ -268,11 +286,20 @@ mod tests {
                 }
             }
         }
-        assert!(seed(dir.path(), &dir.path().join("edms.db")).is_err());
+        let before: Vec<_> = WalkDir::new(dir.path())
+            .into_iter()
+            .map(|e| e.unwrap())
+            .filter(|e| e.file_type().is_file())
+            .map(|e| (e.path().to_owned(), fs::read(e.path()).unwrap()))
+            .collect();
+        assert!(!seed(dir.path(), &dir.path().join("edms.db")).unwrap());
+        for (path, content) in before {
+            assert_eq!(fs::read(path).unwrap(), content);
+        }
         assert_eq!(
             db.query_row("SELECT count(*) FROM endpoints", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            4
+            25
         );
         assert!(
             seed(
