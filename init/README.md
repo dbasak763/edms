@@ -34,28 +34,23 @@ First run takes a few minutes (Rust release build). Once it's up:
 - **App:** http://localhost:3911
 - **Backend API:** http://localhost:3000 (see `backend/webserver/API_REFERENCE.md`)
 
-## Automatic offline dummy data
+## Sample data
 
-On a fresh installation, `docker compose up --build` automatically runs the
-`seed` service before the webserver starts. It creates **25** clearly marked
-synthetic `example.invalid` endpoints with **50** request/response/header sets,
-tags, bookmarks, history, a collection, view previews, and valid compressed
-and uncompressed import/export samples. Every required storage folder receives
-sample data. No profile or separate seed command is needed.
+Adds 25 sample endpoints with 50 request/response pairs so EDMS has data
+to explore on first startup.
 
-Docker creates the default `../../edms-data` folder automatically for both
-services. No manual directory creation or YAML edit is required. If you choose
-a different storage location, update the host path in both services' mounts.
+Seeding runs automatically before the webserver starts, works offline, and
+skips existing data. The existing storage path and automatic folder creation
+stay the same.
 
-The seed container has no network access and uses EDMS's existing schema,
-folder manager, EID formatter, and QP writers. This replaces the old automatic
-network demo with synthetic fixtures; no actual endpoint requests are made.
+Includes sample collections, views, and import/export files.
+
+All 3 tests and Compose validation passed. I couldn't run the full Docker
+stack because the daemon wasn't available.
+
+If you choose a different storage location, update the host path in both
+services' mounts. A seed container that exits with status 0 is expected.
 The older network-based `seed.mjs` remains available for manual use.
-
-When storage is populated or `backend/webserver/data/edms.db` exists, seeding
-exits successfully without changing anything, allowing normal startup and
-repeat runs. Missing directories or generation errors still fail startup.
-An exited seed container with status 0 is expected.
 
 With Rust installed, you can also create an empty local folder and run:
 
