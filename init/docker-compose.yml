@@ -13,14 +13,14 @@ services:
       - "3000:3000"
     volumes:
       - ../backend/webserver/data:/app/data
-      # REQUIRED: create an empty folder outside the checkout, then set source.
-      # Reuse this anchor for the optional offline demo initializer below.
-      - &edms-storage
-        type: bind
-        source: /REPLACE_WITH_YOUR_EDMS_DATA_PATH
-        target: /app/edms_root
-        bind:
-          create_host_path: false
+      # Where EDMS stores all its data on YOUR machine — plain YAML, no
+      # .env file (Ravi, 2026-09-15). Defaults to a folder next to this
+      # repo (../../edms-data), auto-created by Docker on first run — no
+      # manual mkdir needed — and directly visible on your PC, not hidden
+      # in a Docker volume. Want it somewhere else? Just edit the
+      # left-hand side below; whatever you set it to gets auto-created
+      # the same way.
+      - ../../edms-data:/app/edms_root
     environment:
       - RUST_LOG=info
       - EDMS_DB_PATH=/app/data/edms.db
@@ -50,7 +50,7 @@ services:
     image: hashedtokens-edms-backend:v1.0
     volumes:
       - ../backend/webserver/data:/app/data
-      - *edms-storage
+      - ../../edms-data:/app/edms_root
     command: ["./synthetic-data", "/app/edms_root", "/app/data/edms.db"]
     network_mode: none
     restart: "no"

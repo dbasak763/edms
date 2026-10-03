@@ -1,74 +1,84 @@
-# Run EDMS with synthetic storage
+# Initialization for EDMS application
 
-## Configure storage first
+This folder is the single entry point for running EDMS — clone the repo
+and run one command.
 
-1. Create an **empty directory outside this checkout** for EDMS data:
+## Run it
 
-   ```bash
-   mkdir -p "$HOME/edms-data"
-   ```
+```bash
+cd init
+docker compose up --build
+```
 
-2. Edit `init/docker-compose.yml`. Replace
-   `/REPLACE_WITH_YOUR_EDMS_DATA_PATH` in `webserver.volumes.source` with
-   the absolute path you just created (for example `/home/alex/edms-data`).
-   Use the expanded path, not `~`. The seed service uses the same YAML anchor.
-   Docker refuses to create this folder automatically.
+That's it — nothing to configure first, no `.env` file.
 
-3. Only after configuring the path, run:
+EDMS keeps all its data — collections, request/response history, everything
+under `storage/` — in a plain folder on your machine, not hidden inside a
+Docker volume: by default `../../edms-data`, a folder next to this repo.
+It's created automatically the first time you run this — you don't need
+to make it yourself.
 
-   ```bash
-   cd init
-   docker compose build
-   docker compose --profile demo run --rm seed
-   docker compose up
-   ```
+**Want your data somewhere else?** Open `docker-compose.yml`, find this
+line under `webserver: volumes:`, and change the left-hand side to your
+own path:
 
-Open http://localhost:3911 for the app, or http://localhost:3000 for the API.
-Python, Node, and a host Rust installation are not required. The initial image
-build downloads dependencies; **generating the data makes no network requests**.
+```yaml
+- ../../edms-data:/app/edms_root
+```
 
-## Dummy data
+Whatever you set it to gets created automatically the same way — no
+manual folder setup either way.
 
-The initializer uses EDMS's current SQLite schema, folder manager, EID
-formatter, and request/response/header writers. It creates four explicitly
-synthetic `example.invalid` endpoints (GET, POST, PUT, DELETE), eight QP pairs,
-metadata, history, tags, bookmarks, and a collection membership database.
-The allocation watermark is advanced so subsequent endpoints get fresh IDs.
+First run takes a few minutes (Rust release build). Once it's up:
 
-Every required storage folder receives a sample: account workspace metadata,
-history JSON, global EQP JSON, collection SQLite, RepoView Markdown, WebView
-HTML, takeout Markdown, and valid compressed/uncompressed import and export
-bundles. Legacy active, repo, session-backup, exports, temp, and docs folders
-also contain demo Markdown. These are preview fixtures, not authenticated
-accounts or claims that an endpoint was really tested. WebView bundles contain
-no SQLite files. The webview/repoview catalogs keep the application's current
-null backing-file convention.
+- **App:** http://localhost:3911
+- **Backend API:** http://localhost:3000 (see `backend/webserver/API_REFERENCE.md`)
 
-The initializer only accepts an existing, completely empty directory. A second
-run fails without modifying existing data. It is optional: skip the seed command
-for a clean installation. Stop EDMS before initializing any demo directory.
+## Optional offline dummy data
 
-Compose keeps the main database at its existing host location,
-`backend/webserver/data/edms.db`. The initializer refuses to overwrite that
-file too, even if the storage folder is empty. Collection membership databases
-live inside the configured storage folder.
+Seeding is now optional. A normal `docker compose up --build` starts EDMS
+without the old automatic network-based demo (~25 tested endpoints).
+To initialize a fresh installation with synthetic data, run the seed service
+**before** starting the app:
 
-The older `seed.mjs` remains available as a separate manual API demo; it contacts
-a public API and is no longer run automatically by Compose.
+```bash
+cd init
+docker compose build webserver
+docker compose --profile demo run --rm seed
+docker compose up
+```
 
-## Local initializer and checks
+Docker creates the default `../../edms-data` folder automatically for both
+services. No manual directory creation or YAML edit is required. If you choose
+a different storage location, update the host path in both services' mounts.
 
-With Rust installed, initialize a fresh folder without Docker:
+The seed service runs without network access. It creates four clearly marked
+synthetic `example.invalid` endpoints, eight request/response/header sets,
+tags, bookmarks, history, a collection, view previews, and valid compressed
+and uncompressed import/export samples. Every required storage folder receives
+sample data. It uses EDMS's existing schema, folder manager, EID formatter, and
+QP writers; these fixtures do not represent real network tests.
+
+The generator refuses populated storage or an existing
+`backend/webserver/data/edms.db`, leaving existing data untouched. Run it once
+on a fresh installation with the app stopped. Repeat runs fail safely.
+The older network-based `seed.mjs` remains available for manual use.
+
+With Rust installed, you can also create an empty local folder and run:
 
 ```bash
 cargo run --manifest-path backend/compute/Cargo.toml --bin synthetic-data -- /absolute/path/to/empty-data
 cargo test --manifest-path backend/compute/Cargo.toml --bin synthetic-data
 ```
 
-For a local webserver, point `storage.root` in `backend/webserver/config.yaml`
-at that existing directory (relative to the webserver working directory), and
-set `EDMS_DB_PATH` to its `edms.db`. Generate Docker fixtures through the seed
-container so SQLite catalog paths use `/app/edms_root`, not host paths.
+For Docker, use the seed container so database paths point to `/app/edms_root`.
 
-`docker compose down` stops the stack and leaves your storage directory intact.
-To try another dataset, create another empty directory and update the YAML path.
+## Resetting
+
+```bash
+docker compose down -v
+rm -rf ../backend/webserver/data
+```
+
+Your storage folder (`../../edms-data`, or wherever you pointed it) is
+untouched by this — delete it yourself if you want a truly clean slate.

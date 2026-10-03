@@ -4,18 +4,14 @@ _Standalone system for a team building microservices_
 
 ## Quick Start
 * EDMS runs locally as a standalone service
-* Create a storage directory outside the checkout and configure its path in `init/docker-compose.yml` first (see [setup instructions](init/README.md)).
+* No installation or setup necessary.
 * Need to have some Container application like Docker, Podman, Singularity etc running
   
 ```bash
 git clone https://github.com/hashedtokens/edms
 git checkout -b tmp origin/tmp
-# Create an empty directory outside the checkout, then edit the storage
-# source in init/docker-compose.yml to its absolute path.
-mkdir -p "$HOME/edms-data"
-cd init
+cd init 
 docker compose build
-docker compose --profile demo run --rm seed
 docker compose up
 # open browser type, localhost:3911
 ```
